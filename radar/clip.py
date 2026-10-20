@@ -77,11 +77,17 @@ def label(im, t, ref, i, n, here):
 
 
 def build(frames, ref, out_mp4, out_jpg, here, tmp):
-    imgs = []
+    imgs, size = [], None
     for t, src in frames:
-        im = (Image.open(src) if os.path.exists(src) else Image.open(io.BytesIO(get(src)))).convert('RGB')
-        h = round(im.height * W / im.width / 2) * 2
-        imgs.append((t, im.resize((W, h), Image.LANCZOS)))
+        try:
+            im = (Image.open(src) if os.path.exists(src) else Image.open(io.BytesIO(get(src)))).convert('RGB')
+        except Exception as ex:
+            print('WARN frame', t, ex); continue
+        if not size:   # ทุกเฟรมขนาดเดียวกับเฟรมแรก (ภาพของกรมอุตุฯ บางเฟรมขนาดต่างกันเล็กน้อย)
+            size = (W, round(im.height * W / im.width / 2) * 2)
+        imgs.append((t, im.resize(size, Image.LANCZOS)))
+    if len(imgs) < 5:
+        raise RuntimeError('เฟรมไม่พอ')
     n = len(imgs)
     seq = []
     for i, (t, im) in enumerate(imgs):
@@ -95,7 +101,12 @@ def build(frames, ref, out_mp4, out_jpg, here, tmp):
             lab.save(out_jpg, quality=82, optimize=True)   # ภาพตัวอย่าง = เวลาล่าสุด
     for k, im in enumerate(seq):
         im.save(os.path.join(tmp, f'{k:04d}.png'))
-    subprocess.run(['ffmpeg', '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(tmp, '%04d.png'),
+    try:
+        import imageio_ffmpeg
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+    except Exception:
+        exe = 'ffmpeg'
+    subprocess.run([exe, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(tmp, '%04d.png'),
                     '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out_mp4], check=True)
     return imgs[0][1].size, len(seq) / FPS
 
