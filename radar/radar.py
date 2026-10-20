@@ -18,6 +18,17 @@ my = lambda la: math.log(math.tan(math.pi / 4 + math.radians(la) / 2))
 def px(lon, lat, W, H):
     return (lon - W0) / (E0 - W0) * W, (my(N0) - my(lat)) / (my(N0) - my(S0)) * H
 
+def vivid(ov, size, light):
+    """สีฝนเข้มและทึบขึ้นให้เห็นชัดบนแผนที่ (สีเดิมของกรมอุตุฯ ซีดและโปร่ง): อิ่มสี ×1.5 · ทึบ ×2 · โทนสว่างกดความสว่างลงนิด"""
+    ov = ov.resize(size, Image.BILINEAR)
+    a = ov.getchannel('A').point(lambda v: 0 if v < 8 else min(255, int(v * 2.0) + 40))
+    rgb = ImageEnhance.Color(ov.convert('RGB')).enhance(1.5)
+    if light:
+        rgb = ImageEnhance.Brightness(rgb).enhance(0.85)
+    rgb.putalpha(a)
+    return rgb
+
+
 def get(path):
     req = Request(BASE + path, headers={'User-Agent': 'faafon-thai-weather-bot (+github.com/monthonkch/faafon-icons)'})
     with urlopen(req, timeout=60) as r:
@@ -52,8 +63,7 @@ def animate(here, out, frames, meta):
         W, H = base.size
         fulls = []
         for utc, ov in frames:
-            ov = ov.resize(base.size, Image.BILINEAR)
-            ov.putalpha(ov.getchannel('A').point(lambda v: min(255, int(v * 1.15))))
+            ov = vivid(ov, base.size, bool(sfx))
             fulls.append((utc, Image.alpha_composite(base, ov).convert('RGB')))
         ink, bg = ('#FFFFFF', '#000000A0') if not sfx else ('#18202C', '#FFFFFFC0')
         for k, (w, e, s, n) in boxes.items():
@@ -128,9 +138,7 @@ def main():
     meta = {'utc': utc.strftime('%Y-%m-%d %H:%M'), 'ict': (utc + timedelta(hours=7)).strftime('%Y-%m-%d %H:%M'), 'light': 1}
     for sfx, fsfx in (('', ''), ('-l', '_l')):   # โทนมืด + โทนสว่าง
         base = Image.open(os.path.join(here, f'base_full{fsfx}.png')).convert('RGBA')
-        ov = ov0.resize(base.size, Image.BILINEAR)
-        a = ov.getchannel('A').point(lambda v: min(255, int(v * 1.15)))   # ฝนเห็นชัดขึ้น
-        ov.putalpha(a)
+        ov = vivid(ov0, base.size, bool(sfx))   # ฝนเห็นชัดขึ้น
         full = Image.alpha_composite(base, ov).convert('RGB')
         th = Image.alpha_composite(Image.open(os.path.join(here, f'base_th{fsfx}.png')).convert('RGBA'), ov.resize((900, 1322), Image.BILINEAR)).convert('RGB')
         th = th.resize((696, 1022), Image.LANCZOS)   # LINE: ภาพไม่เกิน 1024 px
