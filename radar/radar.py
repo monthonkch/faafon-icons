@@ -29,6 +29,33 @@ def latest():
     utc = datetime.strptime(m.group(1), '%Y-%m-%d %H:%M')
     return utc, m.group(2)
 
+STEP = 0.05   # องศา (~5.5 กม.)
+
+
+def rain_grid(ov):
+    """ระดับฝนรายช่อง 0.05° จากสีของภาพเรดาร์ (1 เบา·เขียว, 2 ปานกลาง·เหลือง, 3 หนัก·ส้ม, 4 หนักมาก·แดง/ม่วง)
+    เก็บเฉพาะช่องที่มีฝน: สตริง 7 ตัวต่อช่อง = แถว(3) คอลัมน์(3) ระดับ(1) นับจากมุมบนซ้าย 22.5N 95E"""
+    W, H = ov.size
+    hsv, alpha = ov.convert('RGB').convert('HSV').load(), ov.getchannel('A').load()
+    def lv(x, y):
+        if alpha[x, y] < 60:
+            return 0
+        h = hsv[x, y][0] * 360 / 255
+        return 1 if 70 <= h < 300 else 2 if h >= 48 else 3 if h >= 20 else 4 if h < 20 or h >= 300 else 1
+    rows, cols, cells = round((N0 - S0) / STEP), round((E0 - W0) / STEP), []
+    for r in range(rows):
+        for c in range(cols):
+            best = 0
+            for dy in (0.25, 0.5, 0.75):
+                for dx in (0.25, 0.5, 0.75):
+                    x, y = px(W0 + (c + dx) * STEP, N0 - (r + dy) * STEP, W, H)
+                    xi, yi = min(W - 1, int(x)), min(H - 1, int(y))
+                    best = max(best, lv(xi, yi))
+            if best:
+                cells.append(f'{r:03d}{c:03d}{best}')
+    return {'step': STEP, 'n': N0, 'w': W0, 'cells': ''.join(cells)}
+
+
 def main():
     here = os.path.dirname(os.path.abspath(__file__))
     out = os.path.join(here, 'out'); os.makedirs(out, exist_ok=True)
@@ -61,6 +88,8 @@ def main():
             im = ImageEnhance.Sharpness(im).enhance(1.1)
             im.save(os.path.join(out, f'{k}{sfx}.jpg'), quality=82, optimize=True)
             meta[k] = {'bbox': [w, e, s, n], 'size': list(im.size)}
+    json.dump(rain_grid(ov0), open(os.path.join(out, 'grid.json'), 'w'), separators=(',', ':'))
+    meta['grid'] = 1
     json.dump(meta, open(os.path.join(out, 'latest.json'), 'w'), ensure_ascii=False)
     open(os.path.join(out, 'CHANGED'), 'w').write(meta['utc'])
     print(meta['ict'], 'ok')
