@@ -35,7 +35,7 @@ jobs:
         if: hashFiles('radar/out/CHANGED') != ''
         continue-on-error: true
         run: |
-          which ffmpeg >/dev/null || sudo apt-get install -y -qq ffmpeg >/dev/null
+          pip install -q imageio-ffmpeg==0.6.0   # ffmpeg สำเร็จรูป (เร็วกว่า apt)
           python radar/clip.py
       - name: publish
         if: hashFiles('radar/out/CHANGED') != ''
