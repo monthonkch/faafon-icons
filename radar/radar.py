@@ -92,6 +92,50 @@ def animate(here, out, frames, meta):
 STEP = 0.05   # องศา (~5.5 กม.)
 
 
+TILE = 40   # ช่องต่อด้านของกระเบื้องคำนวณทิศเคลื่อนที่ (2° ≈ 220 กม.)
+MAXS = 8    # เลื่อนได้ไม่เกิน ±8 ช่อง ต่อช่วงเวลาที่เทียบ (~44 กม.)
+
+
+def cells_of(grid):
+    """สตริง cells → {(แถว, คอลัมน์): ระดับ}"""
+    cs = grid["cells"]
+    return {(int(cs[i:i + 3]), int(cs[i + 3:i + 6])): int(cs[i + 6]) for i in range(0, len(cs), 7)}
+
+
+def _best_shift(prev, cur):
+    """หา (dr, dc) ที่ทำให้ฝนเฟรมก่อนเลื่อนไปทับฝนเฟรมนี้ได้มากสุด → (dr, dc, สัดส่วนทับ 0–1)"""
+    if len(cur) < 25 or len(prev) < 25:
+        return None
+    best = (0, 0, -1.0)
+    for dr in range(-MAXS, MAXS + 1):
+        for dc in range(-MAXS, MAXS + 1):
+            hit = sum(1 for (r, c) in prev if (r + dr, c + dc) in cur)
+            sc = hit / max(len(cur), len(prev))
+            if sc > best[2] or (sc == best[2] and abs(dr) + abs(dc) < abs(best[0]) + abs(best[1])):
+                best = (dr, dc, sc)
+    return best
+
+
+def motion(prev_grid, cur_grid, dt):
+    """ทิศและความเร็วกลุ่มฝน (เทียบ 2 เฟรมห่าง dt นาที) ทั้งประเทศ + รายกระเบื้อง 40×40 ช่อง
+    ใช้พยากรณ์ระยะสั้น (nowcast) ใน Code.gs: ฝนที่จุดนี้ในอีก t นาที ≈ ฝนตอนนี้ที่ตำแหน่ง (จุด − ความเร็ว×t)"""
+    prev, cur = set(cells_of(prev_grid)), set(cells_of(cur_grid))
+    out = {"dt": dt, "g": None, "tiles": {}}
+    g = _best_shift(prev, cur)
+    if g:
+        out["g"] = [g[0], g[1], round(g[2], 2)]
+    tiles = {}
+    for (r, c) in cur:
+        tiles.setdefault((r // TILE, c // TILE), set()).add((r, c))
+    for (tr, tc), cc in tiles.items():
+        r0, r1, c0, c1 = tr * TILE - MAXS, (tr + 1) * TILE + MAXS, tc * TILE - MAXS, (tc + 1) * TILE + MAXS
+        pp = {(r, c) for (r, c) in prev if r0 <= r < r1 and c0 <= c < c1}
+        b = _best_shift(pp, cc)
+        if b and b[2] >= 0.3:
+            out["tiles"][f"{tr},{tc}"] = [b[0], b[1], round(b[2], 2)]
+    return out
+
+
 def rain_grid(ov):
     """ระดับฝนรายช่อง 0.05° จากสีของภาพเรดาร์ (1 เบา·เขียว, 2 ปานกลาง·เหลือง, 3 หนัก·ส้ม, 4 หนักมาก·แดง/ม่วง)
     เก็บเฉพาะช่องที่มีฝน: สตริง 7 ตัวต่อช่อง = แถว(3) คอลัมน์(3) ระดับ(1) นับจากมุมบนซ้าย 22.5N 95E"""
@@ -153,7 +197,17 @@ def main():
             im = ImageEnhance.Sharpness(im).enhance(1.1)
             im.save(os.path.join(out, f'{k}{sfx}.jpg'), quality=82, optimize=True)
             meta[k] = {'bbox': [w, e, s, n], 'size': list(im.size)}
-    json.dump(rain_grid(ov0), open(os.path.join(out, 'grid.json'), 'w'), separators=(',', ':'))
+    grid = rain_grid(ov0)
+    # ทิศทางกลุ่มฝน: เทียบกับเฟรมราว 30 นาทีก่อน (ถ้ามี)
+    try:
+        old = [(t, im) for t, im in frames if 20 <= (utc - t).total_seconds() / 60 <= 45]
+        if old:
+            t1, im1 = min(old, key=lambda x: abs((utc - x[0]).total_seconds() / 60 - 30))
+            grid["mv"] = motion(rain_grid(im1), grid, round((utc - t1).total_seconds() / 60))
+            print('motion', grid["mv"]["dt"], 'นาที', grid["mv"]["g"], len(grid["mv"]["tiles"]), 'กระเบื้อง')
+    except Exception as ex:
+        print('WARN motion', ex)
+    json.dump(grid, open(os.path.join(out, 'grid.json'), 'w'), separators=(',', ':'))
     if len(frames) >= 3:
         try:
             animate(here, out, frames, meta)
