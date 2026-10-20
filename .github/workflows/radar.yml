@@ -31,10 +31,16 @@ jobs:
         run: |
           export PREV_UTC="$(curl -fsS https://raw.githubusercontent.com/${{ github.repository }}/radar/latest.json | python -c 'import sys,json;print(json.load(sys.stdin)["utc"])' || true)"
           python radar/radar.py
+      - name: คลิปเรดาร์ + พยากรณ์ 3 ชม. (กรมอุตุฯ wxmap)
+        if: hashFiles('radar/out/CHANGED') != ''
+        continue-on-error: true
+        run: |
+          which ffmpeg >/dev/null || sudo apt-get install -y -qq ffmpeg >/dev/null
+          python radar/clip.py
       - name: publish
         if: hashFiles('radar/out/CHANGED') != ''
         run: |
-          cd radar/out && rm CHANGED
+          cd radar/out && rm CHANGED && touch .nojekyll   # GitHub Pages เสิร์ฟ mp4 เป็น video/mp4 ให้ LINE
           git init -q -b radar
           git add .
           git -c user.name=radar-bot -c user.email=radar-bot@users.noreply.github.com commit -qm "radar $(date -u +%FT%H:%M)"
