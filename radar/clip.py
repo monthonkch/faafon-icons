@@ -76,7 +76,7 @@ def label(im, t, ref, i, n, here):
     return im
 
 
-def build(frames, ref, out_mp4, out_jpg, here, tmp):
+def build(frames, ref, out_mp4, out_jpg, here, tmp, fr_prefix=None):
     imgs, size = [], None
     for t, src in frames:
         try:
@@ -88,6 +88,12 @@ def build(frames, ref, out_mp4, out_jpg, here, tmp):
         imgs.append((t, im.resize(size, Image.LANCZOS)))
     if len(imgs) < 5:
         raise RuntimeError('เฟรมไม่พอ')
+    fr = []
+    if fr_prefix:   # ภาพนิ่งรายเฟรมขนาดเล็กสำหรับการ์ดเลื่อน (แทน PNG ของกรมอุตุฯ ใบละ ~1.9 MB)
+        for t, im in imgs:
+            ts = int(t.timestamp())
+            im.save(f'{fr_prefix}{ts}.jpg', quality=72, optimize=True, progressive=True)
+            fr.append(ts)
     n = len(imgs)
     seq = []
     for i, (t, im) in enumerate(imgs):
@@ -108,7 +114,7 @@ def build(frames, ref, out_mp4, out_jpg, here, tmp):
         exe = 'ffmpeg'
     subprocess.run([exe, '-y', '-loglevel', 'error', '-framerate', str(FPS), '-i', os.path.join(tmp, '%04d.png'),
                     '-c:v', 'libx264', '-preset', 'slow', '-crf', '30', '-pix_fmt', 'yuv420p', '-movflags', '+faststart', out_mp4], check=True)
-    return imgs[0][1].size, len(seq) / FPS
+    return imgs[0][1].size, len(seq) / FPS, fr
 
 
 def keep_previous(out, meta):
@@ -121,6 +127,8 @@ def keep_previous(out, meta):
             if k in old:
                 for ext in ('mp4', 'jpg'):
                     open(os.path.join(out, f'clip-{k}.{ext}'), 'wb').write(get(PREV + f'clip-{k}.{ext}'))
+                for ts in old[k].get('fr', []):
+                    open(os.path.join(out, f'fr-{k}-{ts}.jpg'), 'wb').write(get(PREV + f'fr-{k}-{ts}.jpg'))
         meta['clip'] = old
         return True
     except Exception as ex:
@@ -160,9 +168,10 @@ def main():
             continue
         tmp = tempfile.mkdtemp()
         try:
-            size, sec = build(fr, ref, os.path.join(out, f'clip-{k}.mp4'), os.path.join(out, f'clip-{k}.jpg'), here, tmp)
+            size, sec, ts = build(fr, ref, os.path.join(out, f'clip-{k}.mp4'), os.path.join(out, f'clip-{k}.jpg'), here, tmp, os.path.join(out, f'fr-{k}-'))
+            fkb = [os.path.getsize(os.path.join(out, f'fr-{k}-{x}.jpg')) for x in ts]
             clip[k] = {'size': list(size), 'sec': round(sec, 1), 'kb': round(os.path.getsize(os.path.join(out, f'clip-{k}.mp4')) / 1024),
-                       'from': fr[0][0].strftime('%H:%M'), 'to': fr[-1][0].strftime('%H:%M')}
+                       'from': fr[0][0].strftime('%H:%M'), 'to': fr[-1][0].strftime('%H:%M'), 'fr': ts, 'fr_kb': round(max(fkb) / 1024)}
             print('clip', k, clip[k])
         except Exception as ex:
             print('WARN clip', k, ex)
