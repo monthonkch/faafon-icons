@@ -1,0 +1,24 @@
+name: ทดสอบเรดาร์
+
+# เฉพาะ branch main (branch radar ถูก push ทุก 15 นาที ไม่ต้องทดสอบ)
+on:
+  push:
+    branches: [main]
+    paths: ["radar/**", ".github/workflows/**"]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q pillow
+      - run: python -m unittest discover -s radar -p 'test_*.py' -v
