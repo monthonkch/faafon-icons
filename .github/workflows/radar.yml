@@ -37,6 +37,10 @@ jobs:
         run: |
           pip install -q imageio-ffmpeg==0.6.0   # ffmpeg สำเร็จรูป (เร็วกว่า apt)
           python radar/clip.py
+      - name: เรดาร์รายสถานี (สสน. — กรมอุตุฯ · ฝนหลวง · กทม.)
+        if: hashFiles('radar/out/CHANGED') != ''
+        continue-on-error: true
+        run: python radar/stations.py
       - name: publish
         if: hashFiles('radar/out/CHANGED') != ''
         run: |
