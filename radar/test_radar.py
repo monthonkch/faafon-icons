@@ -3,7 +3,9 @@ import os, sys, unittest
 from datetime import datetime, timedelta, timezone
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import radar, clip  # noqa: E402
+import radar, clip, stations  # noqa: E402
+import io
+from PIL import Image
 
 ICT = timezone(timedelta(hours=7))
 
@@ -52,6 +54,40 @@ class Clip(unittest.TestCase):
         self.assertEqual(len(fr), 17)
         self.assertEqual(fr[0][0], t - timedelta(hours=1))
         self.assertTrue(all(u.startswith("https://wxmap.tmd.go.th/") for _, u in fr))
+
+
+class Stations(unittest.TestCase):
+    NOW = datetime(2026, 11, 2, 13, 45, tzinfo=ICT)
+
+    def d(self, rt, name, t, tz="UTC", ag="tmd", fn=None):
+        return {"radar_type": rt, "radar_name": name, "agency": ag, "timezone": tz, "media_datetime": t,
+                "filename": fn or rt + ".jpg", "media_path": "P-" + rt}
+
+    def test_pick_fresh_prefer_120_and_timezones(self):
+        data = [self.d("svp120", "เรดาร์สุวรรณภูมิ รัศมี 120 กม.", "2026-11-02 06:40"),
+                self.d("svp240", "เรดาร์สุวรรณภูมิ รัศมี 240 กม.", "2026-11-02 06:30"),
+                self.d("skm120", "เรดาร์สมุทรสงคราม รัศมี 120 กม.", "2026-05-04 06:40"),   # เก่า → ใช้ 240
+                self.d("skm240", "เรดาร์สมุทรสงคราม รัศมี 240 กม.", "2026-11-02 06:30"),
+                self.d("njk", "เรดาร์หนองจอก รัศมี 120 กม.", "2026-11-02 13:25", tz="TST", ag="bma"),   # เวลาไทย
+                self.d("nan120", "เรดาร์น่าน รัศมี 120 กม.", "", fn="nan120_error.jpg"),
+                self.d("ryg240", "เรดาร์ระยอง รัศมี 240 กม.", "2019-03-16 15:15"),
+                self.d("xyz", "เรดาร์ไม่รู้จัก รัศมี 120 กม.", "2026-11-02 06:40")]
+        p = stations.pick(data, self.NOW)
+        self.assertEqual(sorted(p), ["njk", "skm", "svp"])
+        self.assertEqual(p["svp"]["type"], "svp120")
+        self.assertEqual(p["svp"]["r"], 120)
+        self.assertEqual(p["skm"]["type"], "skm240")
+        self.assertEqual(p["njk"]["n"], "หนองจอก")
+        self.assertEqual(p["njk"]["_t"].strftime("%H:%M"), "13:25")
+        self.assertEqual(p["svp"]["_t"].strftime("%H:%M"), "13:40")   # 06:40 UTC = 13:40 น.
+
+    def test_to_jpg_gif_last_frame_and_resize(self):
+        frames = [Image.new("RGB", (1000, 800), c) for c in ((255, 0, 0), (0, 0, 255))]
+        b = io.BytesIO(); frames[0].save(b, "GIF", save_all=True, append_images=frames[1:])
+        jpg, size = stations.to_jpg(b.getvalue())
+        self.assertEqual(size, (720, 576))
+        px = Image.open(io.BytesIO(jpg)).convert("RGB").getpixel((10, 10))
+        self.assertTrue(px[2] > 200 and px[0] < 60, px)   # เฟรมสุดท้าย (น้ำเงิน)
 
 
 if __name__ == "__main__":
