@@ -41,11 +41,12 @@ def site(rt):
 
 
 def when(d):
-    """เวลาภาพ → datetime ICT (กรมอุตุฯ/ฝนหลวง = UTC, กทม. = เวลาไทย)"""
+    """เวลาภาพ (UTC) → datetime ICT"""
     if not d.get('media_datetime'):
         return None
     t = datetime.strptime(d['media_datetime'], '%Y-%m-%d %H:%M')
-    return (t.replace(tzinfo=timezone.utc) if d.get('timezone') == 'UTC' else t.replace(tzinfo=ICT)).astimezone(ICT)
+    # ทุกหน่วยงานส่งเวลาเป็น UTC (กทม. ระบุ "TST" แต่ค่าจริงเป็น UTC — ตรวจ 2 พ.ย. 2569: 06:25 ตอน 13:25 น.)
+    return t.replace(tzinfo=timezone.utc).astimezone(ICT)
 
 
 def pick(data, now):
